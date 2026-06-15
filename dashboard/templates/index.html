@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Feature Pipeline Dashboard</title>
+  <meta name="description" content="Observability dashboard for the real-time ML feature engineering pipeline powered by Apache Kafka and Apache Flink." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ============================================================
+       CSS Custom Properties – Design System
+    ============================================================ */
+    :root {
+      --bg-base:        #0a0c14;
+      --bg-surface:     #111422;
+      --bg-card:        #161a2e;
+      --bg-card-hover:  #1c2240;
+      --bg-input:       #0d0f1c;
+
+      --accent-blue:    #4f8ef7;
+      --accent-violet:  #9b6dff;
+      --accent-cyan:    #22d3ee;
+      --accent-green:   #34d399;
+      --accent-amber:   #fbbf24;
+      --accent-rose:    #f87171;
+
+      --text-primary:   #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted:     #475569;
+
+      --border:         rgba(255,255,255,0.07);
+      --border-accent:  rgba(79,142,247,0.3);
+
+      --glow-blue:      0 0 24px rgba(79,142,247,0.18);
+      --glow-violet:    0 0 24px rgba(155,109,255,0.18);
+      --glow-cyan:      0 0 24px rgba(34,211,238,0.18);
+
+      --radius-sm:  6px;
+      --radius-md:  12px;
+      --radius-lg:  18px;
+
+      --transition: 0.2s ease;
+    }
+
+    /* ============================================================
+       Reset & Base
+    ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ============================================================
+       Layout
+    ============================================================ */
+    .page-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 0 24px 48px;
+    }
+
+    /* ============================================================
+       Header / Nav
+    ============================================================ */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+      border-radius: var(--radius-sm);
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      box-shadow: var(--glow-blue);
+    }
+
+    .brand-name {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(52,211,153,0.08);
+      border: 1px solid rgba(52,211,153,0.25);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: var(--accent-green);
+      font-weight: 500;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    /* ============================================================
+       Section Headings
+    ============================================================ */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    /* ============================================================
+       Metrics Strip (top row)
+    ============================================================ */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .metric-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--card-accent, var(--accent-blue));
+      opacity: 0.7;
+    }
+
+    .metric-card:hover {
+      border-color: var(--border-accent);
+      box-shadow: var(--glow-blue);
+    }
+
+    .metric-card.blue   { --card-accent: var(--accent-blue);   }
+    .metric-card.violet { --card-accent: var(--accent-violet); }
+    .metric-card.cyan   { --card-accent: var(--accent-cyan);   }
+    .metric-card.amber  { --card-accent: var(--accent-amber);  }
+    .metric-card.green  { --card-accent: var(--accent-green);  }
+    .metric-card.rose   { --card-accent: var(--accent-rose);   }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      line-height: 1;
+      transition: all 0.3s ease;
+    }
+
+    .metric-value.updated {
+      animation: flash 0.4s ease;
+    }
+
+    @keyframes flash {
+      0%   { color: var(--accent-cyan); }
+      100% { color: var(--text-primary); }
+    }
+
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ============================================================
+       Main 2-column layout
+    ============================================================ */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 1100px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ============================================================
+       Card Component
+    ============================================================ */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(79,142,247,0.12);
+      color: var(--accent-blue);
+      border: 1px solid rgba(79,142,247,0.2);
+    }
+
+    /* ============================================================
+       Entity Viewer
+    ============================================================ */
+    .search-form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .search-input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(79,142,247,0.12);
+    }
+
+    .search-input::placeholder { color: var(--text-muted); }
+
+    .btn {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 10px 20px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity var(--transition), transform var(--transition);
+      letter-spacing: 0.02em;
+    }
+
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+
+    #entity-results { display: flex; flex-direction: column; gap: 8px; }
+
+    .feature-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color var(--transition);
+      animation: slide-in 0.25s ease;
+    }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .feature-row:hover { border-color: var(--border-accent); }
+
+    .feature-name-cell {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .feature-value-cell {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      font-family: 'JetBrains Mono', monospace;
+      text-align: right;
+    }
+
+    .feature-time-cell {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: right;
+      min-width: 60px;
+    }
+
+    .no-results {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 32px 0;
+    }
+
+    /* ============================================================
+       Live Feature Stream
+    ============================================================ */
+    #live-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 520px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .feed-item {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--item-accent, var(--accent-blue));
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      animation: feed-in 0.3s ease;
+    }
+
+    @keyframes feed-in {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .feed-item.click_rate        { --item-accent: var(--accent-blue); }
+    .feed-item.avg_dwell_time    { --item-accent: var(--accent-violet); }
+    .feed-item.engagement_rate   { --item-accent: var(--accent-cyan); }
+    .feed-item[class*=category]  { --item-accent: var(--accent-green); }
+
+    .feed-entity {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .feed-feature {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .feed-value {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-cyan);
+      font-weight: 700;
+      text-align: right;
+    }
+
+    /* ============================================================
+       Freshness Bar (feature staleness visualizer)
+    ============================================================ */
+    .freshness-block { margin-bottom: 24px; }
+
+    .freshness-item {
+      margin-bottom: 14px;
+    }
+
+    .freshness-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .freshness-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .freshness-age {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+    }
+
+    .freshness-bar-bg {
+      height: 6px;
+      background: var(--bg-surface);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .freshness-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
+      transition: width 1s ease;
+      max-width: 100%;
+    }
+
+    /* ============================================================
+       Watermark Gauge
+    ============================================================ */
+    .watermark-gauge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 16px;
+      background: var(--bg-surface);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+
+    .gauge-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .gauge-value {
+      font-size: 36px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-amber);
+    }
+
+    .gauge-unit {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ============================================================
+       Pipeline Architecture Diagram (decorative)
+    ============================================================ */
+    .arch-bar {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+
+    .arch-node {
+      flex: 1;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      border-right: 1px solid var(--border);
+      transition: background var(--transition);
+    }
+
+    .arch-node:last-child { border-right: none; }
+    .arch-node:hover { background: var(--bg-card-hover); }
+
+    .arch-icon { font-size: 20px; }
+
+    .arch-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-align: center;
+    }
+
+    .arch-sub {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .arch-arrow {
+      color: var(--text-muted);
+      font-size: 16px;
+      padding: 0 4px;
+    }
+
+    /* ============================================================
+       Utilities
+    ============================================================ */
+    .mb-24 { margin-bottom: 24px; }
+    .mb-16 { margin-bottom: 16px; }
+
+    .tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(155,109,255,0.1);
+      color: var(--accent-violet);
+      border: 1px solid rgba(155,109,255,0.2);
+    }
+
+    /* Connection status */
+    #conn-status {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      z-index: 99;
+      transition: all var(--transition);
+    }
+
+    #conn-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-rose);
+      transition: background var(--transition);
+    }
+
+    #conn-status.connected #conn-dot { background: var(--accent-green); }
+    #conn-status.connected { color: var(--text-secondary); }
+
+    /* ============================================================
+       Responsive
+    ============================================================ */
+    @media (max-width: 768px) {
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .arch-bar { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrapper">
+
+  <!-- ─── Header ──────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <div class="brand-name">Feature Pipeline Dashboard</div>
+        <div class="brand-sub">Kafka · Apache Flink · Real-Time ML</div>
+      </div>
+    </div>
+    <div class="status-pill">
+      <div class="pulse-dot"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- ─── Architecture Bar ────────────────────────────────────── -->
+  <div class="arch-bar mb-24">
+    <div class="arch-node">
+      <div class="arch-icon">🏭</div>
+      <div class="arch-name">Producer</div>
+      <div class="arch-sub">user-events</div>
+    </div>
+    <div class="arch-node">
+      <div class="arch-icon">📨</div>
+      <div class="arch-name">Kafka</div>
+      <div class="arch-sub">3 topics</div>
+    </div>
+    <div class="arch-node">
+      <div class="arch-icon">⚡</div>
+      <div class="arch-name">Apache Flink</div>
+      <div class="arch-sub">EventTime · Watermarks</div>
+    </div>
+    <div class="arch-node">
+      <div class="arch-icon">🗄️</div>
+      <div class="arch-name">Feature Store</div>
+      <div class="arch-sub">compacted topic</div>
+    </div>
+    <div class="arch-node">
+      <div class="arch-icon">📊</div>
+      <div class="arch-name">Dashboard</div>
+      <div class="arch-sub">WebSocket</div>
+    </div>
+  </div>
+
+  <!-- ─── Top Metrics ─────────────────────────────────────────── -->
+  <div class="section-title">Pipeline Health Metrics</div>
+  <div class="metrics-grid mb-24">
+
+    <div class="metric-card rose">
+      <div class="metric-label">Late Events Dropped</div>
+      <div class="metric-value" id="m-late">—</div>
+      <div class="metric-sub">Events outside 30-second watermark tolerance</div>
+    </div>
+
+    <div class="metric-card amber">
+      <div class="metric-label">Watermark Lag</div>
+      <div class="metric-value" id="m-wm-lag">—</div>
+      <div class="metric-sub">Wall-clock − estimated watermark (seconds)</div>
+    </div>
+
+    <div class="metric-card cyan">
+      <div class="metric-label">click_rate Freshness</div>
+      <div class="metric-value" id="m-cr-fresh">—</div>
+      <div class="metric-sub">Seconds since last click_rate update</div>
+    </div>
+
+    <div class="metric-card violet">
+      <div class="metric-label">engagement_rate Freshness</div>
+      <div class="metric-value" id="m-er-fresh">—</div>
+      <div class="metric-sub">Seconds since last engagement_rate update</div>
+    </div>
+
+    <div class="metric-card blue">
+      <div class="metric-label">Total Events Observed</div>
+      <div class="metric-value" id="m-total">—</div>
+      <div class="metric-sub">user-events messages seen by dashboard</div>
+    </div>
+
+    <div class="metric-card green">
+      <div class="metric-label">Feature Store Entries</div>
+      <div class="metric-value" id="m-store-size">—</div>
+      <div class="metric-sub">Unique entity:feature pairs in store</div>
+    </div>
+
+  </div>
+
+  <!-- ─── Main Grid ───────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- Left column -->
+    <div>
+
+      <!-- Entity Viewer -->
+      <div class="card mb-24">
+        <div class="card-header">
+          <div class="card-title">🔍 Entity Feature Viewer</div>
+          <span class="card-badge">Real-Time Lookup</span>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+          Enter a <code style="color:var(--accent-cyan)">user_id</code> or
+          <code style="color:var(--accent-violet)">content_id</code> to view all current features.
+          Results update automatically via WebSocket.
+        </p>
+        <div class="search-form">
+          <input
+            id="entity-input"
+            class="search-input"
+            type="text"
+            placeholder="e.g. user_001 or content_005"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="btn" id="search-btn" onclick="lookupEntity()">Lookup</button>
+        </div>
+        <div id="entity-results">
+          <div class="no-results">Enter an entity ID above to view its features.</div>
+        </div>
+      </div>
+
+      <!-- Live Feature Feed -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📡 Live Feature Stream</div>
+          <span class="card-badge" id="feed-count">0 updates</span>
+        </div>
+        <div id="live-feed">
+          <div class="no-results" style="padding:20px 0;">Waiting for feature updates from Flink…</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right column -->
+    <div>
+
+      <!-- Feature Freshness -->
+      <div class="card mb-24">
+        <div class="card-header">
+          <div class="card-title">🕐 Feature Freshness</div>
+          <span class="card-badge">Staleness Monitor</span>
+        </div>
+
+        <div class="freshness-block">
+
+          <div class="freshness-item">
+            <div class="freshness-header">
+              <span class="freshness-label">click_rate</span>
+              <span class="freshness-age" id="cr-age">—</span>
+            </div>
+            <div class="freshness-bar-bg">
+              <div class="freshness-bar-fill" id="cr-bar" style="width:0%;background:linear-gradient(90deg,#34d399,#22d3ee)"></div>
+            </div>
+          </div>
+
+          <div class="freshness-item">
+            <div class="freshness-header">
+              <span class="freshness-label">avg_dwell_time</span>
+              <span class="freshness-age" id="adt-age">—</span>
+            </div>
+            <div class="freshness-bar-bg">
+              <div class="freshness-bar-fill" id="adt-bar" style="width:0%;background:linear-gradient(90deg,#9b6dff,#4f8ef7)"></div>
+            </div>
+          </div>
+
+          <div class="freshness-item">
+            <div class="freshness-header">
+              <span class="freshness-label">engagement_rate</span>
+              <span class="freshness-age" id="er-age">—</span>
+            </div>
+            <div class="freshness-bar-bg">
+              <div class="freshness-bar-fill" id="er-bar" style="width:0%;background:linear-gradient(90deg,#22d3ee,#4f8ef7)"></div>
+            </div>
+          </div>
+
+          <div class="freshness-item">
+            <div class="freshness-header">
+              <span class="freshness-label">category_affinity</span>
+              <span class="freshness-age" id="ca-age">—</span>
+            </div>
+            <div class="freshness-bar-bg">
+              <div class="freshness-bar-fill" id="ca-bar" style="width:0%;background:linear-gradient(90deg,#34d399,#fbbf24)"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Watermark Gauge -->
+      <div class="card mb-24">
+        <div class="card-header">
+          <div class="card-title">💧 Watermark Lag</div>
+          <span class="card-badge">EventTime Tracking</span>
+        </div>
+        <div class="watermark-gauge">
+          <div class="gauge-label">Estimated Lag</div>
+          <div class="gauge-value" id="wm-gauge">—</div>
+          <div class="gauge-unit">seconds behind wall clock</div>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
+          Flink's watermark is the maximum event timestamp seen, minus the 30-second
+          bounded-out-of-orderness tolerance. A higher lag means the pipeline is further
+          behind real time — expected in accelerated simulation mode.
+        </p>
+      </div>
+
+      <!-- Late Events Detail -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">⚠️ Late Event Analysis</div>
+          <span class="card-badge">Watermark Behavior</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;text-align:center;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">LATE EVENTS</div>
+            <div style="font-size:24px;font-weight:700;color:var(--accent-rose);font-family:'JetBrains Mono',monospace;" id="late-detail">0</div>
+          </div>
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;text-align:center;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">LATE RATE</div>
+            <div style="font-size:24px;font-weight:700;color:var(--accent-amber);font-family:'JetBrains Mono',monospace;" id="late-pct">0%</div>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);line-height:1.6;">
+          The producer deliberately generates ~5% of events with timestamps 35–90 simulated
+          seconds in the past. Since Flink's watermark tolerance is 30 seconds, these events
+          arrive outside their window and are counted as <strong style="color:var(--accent-rose)">dropped late events</strong>.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Connection Status Indicator -->
+<div id="conn-status">
+  <div id="conn-dot"></div>
+  <span id="conn-label">Connecting…</span>
+</div>
+
+
+<script>
+  /* ========================================================
+     State
+  ======================================================== */
+  const featureStore   = {};       // entity_key → feature record
+  const freshnessTs    = {};       // feature_name → last_computed_at epoch
+  let   feedCount      = 0;
+  let   currentEntity  = null;
+  let   ws             = null;
+  const MAX_FEED_ITEMS = 80;
+
+  /* ========================================================
+     WebSocket Connection
+  ======================================================== */
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onopen = () => {
+      document.getElementById('conn-status').classList.add('connected');
+      document.getElementById('conn-label').textContent = 'Live';
+      document.getElementById('status-text').textContent = 'Pipeline Live';
+    };
+
+    ws.onclose = () => {
+      document.getElementById('conn-status').classList.remove('connected');
+      document.getElementById('conn-label').textContent = 'Reconnecting…';
+      document.getElementById('status-text').textContent = 'Reconnecting…';
+      setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'init') {
+        msg.features.forEach(f => processFeature(f, false));
+        updateMetrics(msg.metrics);
+      } else if (msg.type === 'feature_update') {
+        processFeature(msg.feature, true);
+        updateMetrics(msg.metrics);
+      } else if (msg.type === 'metrics') {
+        updateMetrics(msg.metrics);
+      }
+    };
+  }
+
+  /* ========================================================
+     Feature Processing
+  ======================================================== */
+  function processFeature(f, animate) {
+    featureStore[f.entity_key] = f;
+
+    // Track freshness timestamps
+    if (f.computed_at) {
+      const epoch = parseTS(f.computed_at);
+      if (!freshnessTs[f.feature_name] || epoch > freshnessTs[f.feature_name]) {
+        freshnessTs[f.feature_name] = epoch;
+      }
+    }
+
+    // Add to live feed
+    if (animate) addFeedItem(f);
+
+    // Refresh entity viewer if it matches current query
+    if (currentEntity && f.entity_id === currentEntity) renderEntityResults();
+
+    // Update store size metric
+    document.getElementById('m-store-size').textContent = Object.keys(featureStore).length;
+  }
+
+  /* ========================================================
+     Live Feed
+  ======================================================== */
+  function addFeedItem(f) {
+    const feed = document.getElementById('live-feed');
+
+    // Remove placeholder
+    const placeholder = feed.querySelector('.no-results');
+    if (placeholder) placeholder.remove();
+
+    feedCount++;
+    document.getElementById('feed-count').textContent = `${feedCount} updates`;
+
+    const item = document.createElement('div');
+    const fClass = f.feature_name.startsWith('category') ? 'category' : f.feature_name;
+    item.className = `feed-item ${fClass}`;
+    item.innerHTML = `
+      <span class="feed-entity" title="${f.entity_id}">${f.entity_id}</span>
+      <span class="feed-feature">${f.feature_name}</span>
+      <span class="feed-value">${formatValue(f.feature_value)}</span>
+    `;
+
+    feed.insertBefore(item, feed.firstChild);
+
+    // Trim old items
+    while (feed.children.length > MAX_FEED_ITEMS) {
+      feed.removeChild(feed.lastChild);
+    }
+  }
+
+  /* ========================================================
+     Entity Viewer
+  ======================================================== */
+  function lookupEntity() {
+    const input = document.getElementById('entity-input').value.trim();
+    if (!input) return;
+    currentEntity = input;
+    renderEntityResults();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.activeElement.id === 'entity-input') lookupEntity();
+  });
+
+  function renderEntityResults() {
+    const container = document.getElementById('entity-results');
+    const features  = Object.values(featureStore).filter(f => f.entity_id === currentEntity);
+
+    if (features.length === 0) {
+      container.innerHTML = `
+        <div class="no-results">
+          No features found for <code style="color:var(--accent-cyan)">${currentEntity}</code>.
+          <br/>The pipeline may still be warming up — try again in a moment.
+        </div>`;
+      return;
+    }
+
+    // Sort: user features first, then content, then category affinity
+    features.sort((a, b) => a.feature_name.localeCompare(b.feature_name));
+
+    container.innerHTML = '';
+    features.forEach(f => {
+      const age  = f.computed_at ? relativeTime(parseTS(f.computed_at)) : '—';
+      const row  = document.createElement('div');
+      row.className = 'feature-row';
+      row.innerHTML = `
+        <span class="feature-name-cell">${f.feature_name}</span>
+        <span class="feature-value-cell">${formatValue(f.feature_value)}</span>
+        <span class="feature-time-cell">${age}</span>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  /* ========================================================
+     Metrics Update
+  ======================================================== */
+  function updateMetrics(m) {
+    if (!m) return;
+
+    setMetric('m-late',    m.late_events_count   ?? '—');
+    setMetric('m-wm-lag',  m.watermark_lag_s != null ? `${m.watermark_lag_s}s` : '—');
+    setMetric('m-cr-fresh', m.click_rate_freshness_s != null ? `${m.click_rate_freshness_s}s` : '—');
+    setMetric('m-er-fresh', m.engagement_rate_freshness_s != null ? `${m.engagement_rate_freshness_s}s` : '—');
+    setMetric('m-total',   m.total_events_seen   ?? '—');
+
+    // Watermark gauge
+    if (m.watermark_lag_s != null) {
+      document.getElementById('wm-gauge').textContent = `${m.watermark_lag_s}s`;
+    }
+
+    // Late event detail
+    document.getElementById('late-detail').textContent = m.late_events_count ?? 0;
+    if (m.total_events_seen > 0) {
+      const pct = ((m.late_events_count / m.total_events_seen) * 100).toFixed(1);
+      document.getElementById('late-pct').textContent = `${pct}%`;
+    }
+
+    // Freshness bars (fresher = greener, stale = shorter bar)
+    updateFreshnessBar('click_rate',      'cr-bar',  'cr-age',  4000);
+    updateFreshnessBar('avg_dwell_time',  'adt-bar', 'adt-age', 4000);
+    updateFreshnessBar('engagement_rate', 'er-bar',  'er-age',  400);
+    updateFreshnessBar('category_affinity_sci-fi', 'ca-bar', 'ca-age', 4000);
+  }
+
+  function setMetric(id, val) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.textContent !== String(val)) {
+      el.textContent = val;
+      el.classList.remove('updated');
+      void el.offsetWidth;
+      el.classList.add('updated');
+    }
+  }
+
+  function updateFreshnessBar(featureName, barId, ageId, maxAgeS) {
+    const epoch = Object.entries(freshnessTs).find(([k]) => k === featureName)?.[1];
+    if (!epoch) return;
+
+    const now      = Date.now() / 1000;
+    const ageS     = Math.max(0, now - epoch);
+    const pct      = Math.max(2, 100 - (ageS / maxAgeS) * 100);
+
+    const bar = document.getElementById(barId);
+    const age = document.getElementById(ageId);
+    if (bar) bar.style.width = `${Math.min(100, pct)}%`;
+    if (age) age.textContent = `${ageS.toFixed(0)}s ago`;
+  }
+
+  /* ========================================================
+     Utilities
+  ======================================================== */
+  function formatValue(v) {
+    if (v == null) return '—';
+    if (typeof v === 'number') {
+      return Number.isInteger(v) ? v.toString() : v.toFixed(4);
+    }
+    return String(v);
+  }
+
+  function parseTS(ts) {
+    // Handle "2024-01-01T10:00:00Z" and "2024-01-01 10:00:00.000"
+    const s = ts.replace(' ', 'T').replace(/(\d{2}:\d{2}:\d{2})$/, '$1Z');
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
+  }
+
+  function relativeTime(epoch) {
+    if (!epoch) return '—';
+    const ageS = Math.max(0, Date.now() / 1000 - epoch);
+    if (ageS < 60)   return `${Math.round(ageS)}s ago`;
+    if (ageS < 3600) return `${Math.round(ageS/60)}m ago`;
+    return `${Math.round(ageS/3600)}h ago`;
+  }
+
+  /* Tick freshness bars every second */
+  setInterval(() => {
+    updateFreshnessBar('click_rate',      'cr-bar',  'cr-age',  4000);
+    updateFreshnessBar('avg_dwell_time',  'adt-bar', 'adt-age', 4000);
+    updateFreshnessBar('engagement_rate', 'er-bar',  'er-age',  400);
+    updateFreshnessBar('category_affinity_sci-fi', 'ca-bar', 'ca-age', 4000);
+    document.getElementById('m-store-size').textContent = Object.keys(featureStore).length;
+  }, 1000);
+
+  // ---- Boot ----
+  connectWS();
+</script>
+</body>
+</html>

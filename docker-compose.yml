@@ -1,0 +1,298 @@
+# =============================================================================
+#  Real-Time ML Feature Engineering Pipeline
+#  docker-compose up --build -d
+# =============================================================================
+
+x-flink-common-env: &flink-common-env
+  FLINK_PROPERTIES: |
+    jobmanager.rpc.address: flink-jobmanager
+    rest.port: 8081
+    parallelism.default: 2
+    taskmanager.numberOfTaskSlots: 4
+    taskmanager.memory.process.size: 1800m
+    jobmanager.memory.process.size: 1024m
+    state.backend: hashmap
+    execution.checkpointing.interval: 60000
+    execution.checkpointing.mode: EXACTLY_ONCE
+    rest.flamegraph.enabled: true
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  USER_EVENTS_TOPIC: user-events
+  CONTENT_METADATA_TOPIC: content-metadata
+  FEATURE_STORE_TOPIC: feature-store
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Zookeeper – Kafka coordination
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Kafka Broker
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: WARN
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # kafka-init – creates topics with exact configurations required
+  # ---------------------------------------------------------------------------
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        echo '=== Creating Kafka Topics ==='
+
+        kafka-topics --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic user-events \
+          --partitions 3 \
+          --replication-factor 1
+        echo 'user-events created (3 partitions)'
+
+        kafka-topics --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic content-metadata \
+          --partitions 1 \
+          --replication-factor 1 \
+          --config cleanup.policy=compact \
+          --config min.cleanable.dirty.ratio=0.1 \
+          --config segment.ms=5000 \
+          --config delete.retention.ms=100
+        echo 'content-metadata created (compact)'
+
+        kafka-topics --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic feature-store \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config cleanup.policy=compact \
+          --config min.cleanable.dirty.ratio=0.1 \
+          --config segment.ms=5000 \
+          --config delete.retention.ms=100
+        echo 'feature-store created (compact)'
+
+        echo '=== All topics created successfully ==='
+        kafka-topics --bootstrap-server kafka:9092 --list
+    healthcheck:
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - >-
+          kafka-topics --bootstrap-server kafka:9092 --describe --topic user-events 2>/dev/null | grep -q 'user-events' &&
+          kafka-topics --bootstrap-server kafka:9092 --describe --topic content-metadata 2>/dev/null | grep -q 'compact' &&
+          kafka-topics --bootstrap-server kafka:9092 --describe --topic feature-store 2>/dev/null | grep -q 'compact'
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    restart: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Flink Job Manager
+  # ---------------------------------------------------------------------------
+  flink-jobmanager:
+    build:
+      context: ./flink_job
+      dockerfile: Dockerfile
+    container_name: flink-jobmanager
+    hostname: flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      <<: *flink-common-env
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -sf http://localhost:8081/v1/overview > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Flink Task Manager
+  # ---------------------------------------------------------------------------
+  flink-taskmanager:
+    build:
+      context: ./flink_job
+      dockerfile: Dockerfile
+    container_name: flink-taskmanager
+    hostname: flink-taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      <<: *flink-common-env
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -sf http://flink-jobmanager:8081/v1/taskmanagers | grep -q taskmanagers"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Flink Job Submitter – submits the PyFlink job then keeps the container live
+  # ---------------------------------------------------------------------------
+  flink-job-submit:
+    build:
+      context: ./flink_job
+      dockerfile: Dockerfile
+    container_name: flink-job-submit
+    depends_on:
+      flink-taskmanager:
+        condition: service_healthy
+      kafka-init:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        echo 'Waiting for Flink cluster stabilization (15 s)...'
+        sleep 15
+
+        echo 'Submitting Feature Engineering Pipeline...'
+        flink run \
+          -m flink-jobmanager:8081 \
+          -py /opt/flink/usrlib/feature_engineering.py
+
+        echo 'flink run returned – job is on the cluster. Keeping container alive...'
+        while true; do
+          sleep 60
+        done
+    environment:
+      <<: *flink-common-env
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import urllib.request, json, sys
+          try:
+            data = json.loads(urllib.request.urlopen('http://flink-jobmanager:8081/v1/jobs/overview', timeout=5).read())
+            sys.exit(0 if any(j['state'] == 'RUNNING' for j in data.get('jobs', [])) else 1)
+          except Exception:
+            sys.exit(1)
+      interval: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 120s
+    restart: on-failure:3
+
+  # ---------------------------------------------------------------------------
+  # Data Producer
+  # ---------------------------------------------------------------------------
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer
+    depends_on:
+      kafka-init:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USER_EVENTS_TOPIC: user-events
+      CONTENT_METADATA_TOPIC: content-metadata
+      EVENTS_PER_SECOND: "10"
+      TIME_ACCELERATION_FACTOR: "60"
+      LATE_EVENT_PERCENTAGE: "0.05"
+      LATE_EVENT_MIN_DELAY_S: "35"
+      LATE_EVENT_MAX_DELAY_S: "90"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - |
+          import os, sys
+          try:
+            with open('/proc/1/status') as f:
+              content = f.read()
+            sys.exit(0 if 'State:\tS' in content or 'State:\tR' in content else 1)
+          except Exception:
+            sys.exit(1)
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Observability Dashboard
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    depends_on:
+      kafka-init:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USER_EVENTS_TOPIC: user-events
+      FEATURE_STORE_TOPIC: feature-store
+      DASHBOARD_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -sf http://localhost:8080/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
